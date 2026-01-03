@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InjectRequest {
@@ -25,7 +24,7 @@ pub struct Rule {
 }
 
 pub struct AppState {
-    pub tx: mpsc::UnboundedSender<serde_json::Value>,
+    pub tx: tokio::sync::broadcast::Sender<serde_json::Value>,
     pub tabs: Mutex<Vec<TabInfo>>,
     pub results: Mutex<Vec<serde_json::Value>>,
 }
