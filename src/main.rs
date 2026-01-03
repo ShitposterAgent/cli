@@ -33,12 +33,14 @@ enum Commands {
         #[arg(short, long, default_value_t = DEFAULT_PORT)]
         port: u16,
     },
-    /// Navigate to a URL (tabId 0 is default)
+    /// Navigate to a URL (tabId 'active' is default)
     Navigate {
         url: String,
         #[arg(short, long, default_value = "active")]
         tab: String,
     },
+    /// Open a new tab
+    OpenTab { url: Option<String> },
     /// List all active tabs
     Tabs,
     /// Get the results history
@@ -152,6 +154,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Start { port } => {
+            let addr_str = format!("127.0.0.1:{}", port);
+
+            // Check if port is already in use
+            if std::net::TcpListener::bind(&addr_str).is_err() {
+                eprintln!("\n❌ ERROR: Port {} is already in use.", port);
+                eprintln!("A BGM Brain instance is likely already running.");
+                eprintln!(
+                    "Use `fuser -k {}/tcp` to kill it or use a different port.\n",
+                    port
+                );
+                std::process::exit(1);
+            }
+
             let (tx, _) = broadcast::channel::<serde_json::Value>(100);
             let state = Arc::new(AppState {
                 tx,
@@ -168,39 +183,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .layer(CorsLayer::permissive())
                 .with_state(Arc::clone(&state));
 
-            let addr = format!("127.0.0.1:{}", port);
-            let listener = tokio::net::TcpListener::bind(&addr).await?;
-            eprintln!("[BGM BRAIN] Operating on http://{}", addr);
+            let listener = tokio::net::TcpListener::bind(&addr_str).await?;
+            eprintln!("[BGM BRAIN] Operating on http://{}", addr_str);
             axum::serve(listener, app).await?;
         }
         _ => {
             let client = reqwest::Client::new();
-            let url = format!("http://127.0.0.1:{}", DEFAULT_PORT);
-            match cli.command {
-                Commands::Navigate { url: nav_url, tab } => {
-                    let res = client
-                        .post(format!("{}/navigate", url))
-                        .json(&serde_json::json!({ "url": nav_url, "tab_id": tab }))
-                        .send()
-                        .await?;
-                    println!("{:?}", res.json::<serde_json::Value>().await?);
+            let base_url = format!("http://127.0.0.1:{}", DEFAULT_PORT);
+
+            let result = match cli.command {
+                Commands::Navigate { url, tab } => {
+                    client.post(format!("{}/navigate", base_url))
+                        .json(&serde_json::json!({ "url": url, "tab_id": tab }))
+                        .send().await?.json::<serde_json::Value>().await?
+                }
+                Commands::OpenTab { url } => {
+                    client.post(format!("{}/navigate", base_url))
+                        .json(&serde_json::json!({ "url": url.unwrap_or("about:blank".to_string()), "tab_id": "new" }))
+                        .send().await?.json::<serde_json::Value>().await?
                 }
                 Commands::Tabs => {
-                    let res = client.get(format!("{}/tabs", url)).send().await?;
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&res.json::<serde_json::Value>().await?)?
-                    );
+                    client.get(format!("{}/tabs", base_url)).send().await?
+                        .json::<serde_json::Value>().await?
                 }
                 Commands::Results => {
-                    let res = client.get(format!("{}/results", url)).send().await?;
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&res.json::<serde_json::Value>().await?)?
-                    );
+                    client.get(format!("{}/results", base_url)).send().await?
+                        .json::<serde_json::Value>().await?
                 }
-                _ => println!("Command not yet implemented in CLI mode"),
-            }
+                Commands::Click { selector, tab } => {
+                    // Reuse navigate handler structure since common bridge handles many types
+                    client.post(format!("{}/navigate", base_url)) // Note: In a real system you'd have more specific endpoints
+                        .json(&serde_json::json!({ "type": "click", "selector": selector, "tab_id": tab }))
+                        .send().await?.json::<serde_json::Value>().await?
+                }
+                _ => serde_json::json!({ "error": "Command dispatcher not fully implemented" })
+            };
+
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
     }
     Ok(())
