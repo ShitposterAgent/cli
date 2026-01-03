@@ -3,7 +3,7 @@ mod state;
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::State,
     routing::{get, post},
 };
 use state::{AppState, InjectRequest, Rule, SharedState};
@@ -52,7 +52,6 @@ async fn main() {
     });
 
     // Handle stdout (Native Messaging Out)
-    let tx_clone = Arc::clone(&state);
     tokio::spawn(async move {
         let mut stdout = io::stdout();
         while let Some(msg) = rx.recv().await {
