@@ -27,6 +27,7 @@ pub struct Rule {
 pub struct AppState {
     pub tx: mpsc::UnboundedSender<serde_json::Value>,
     pub tabs: Mutex<Vec<TabInfo>>,
+    pub results: Mutex<Vec<serde_json::Value>>,
 }
 
 pub type SharedState = Arc<AppState>;

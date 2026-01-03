@@ -134,12 +134,18 @@ async fn capture_handler(
     Json(serde_json::json!({ "status": "capture_request_sent" }))
 }
 
+async fn results_handler(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let results = state.results.lock().unwrap();
+    Json(serde_json::json!({ "results": *results }))
+}
+
 #[tokio::main]
 async fn main() {
     let (tx, mut rx) = mpsc::unbounded_channel::<serde_json::Value>();
     let state = Arc::new(AppState {
         tx,
         tabs: Mutex::new(Vec::new()),
+        results: Mutex::new(Vec::new()),
     });
 
     // Handle stdout (Native Messaging Out)
@@ -165,13 +171,14 @@ async fn main() {
         .route("/click", post(click_handler))
         .route("/type", post(type_handler))
         .route("/capture", post(capture_handler))
+        .route("/results", get(results_handler))
         .layer(CorsLayer::permissive())
         .with_state(Arc::clone(&state));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
         .await
         .unwrap();
-    eprintln!("[SERVER] Listening on 127.0.0.1:3000");
+    eprintln!("[SERVER] Listening on 127.0.0.1:3001");
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -195,23 +202,16 @@ async fn main() {
                                 }
                             }
                         }
-                        "injection_result" => {
-                            eprintln!("[BGM] Injection result: {}", msg);
-                        }
-                        "html_result" => {
-                            eprintln!("[BGM] HTML Result received: {}", msg);
-                        }
-                        "capture_result" => {
-                            eprintln!(
-                                "[BGM] Capture received (length: {})",
-                                msg.get("dataUrl")
-                                    .and_then(|d| d.as_str())
-                                    .map(|s| s.len())
-                                    .unwrap_or(0)
-                            );
+                        "injection_result" | "html_result" | "capture_result" => {
+                            let mut results = state.results.lock().unwrap();
+                            results.push(msg.clone());
+                            if results.len() > 100 {
+                                results.remove(0);
+                            }
+                            eprintln!("[BGM] Recorded result for: {}", msg_type);
                         }
                         "audit_log" => {
-                            // Silently ignore for now or print
+                            // Silently ignore
                         }
                         _ => eprintln!("[BGM] Received unknown message type: {}", msg_type),
                     }
