@@ -11,16 +11,19 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use futures_util::{sink::SinkExt, stream::StreamExt};
-use state::{AppState, InjectRequest, SharedState};
+use notify::{Config, RecursiveMode, Watcher};
+use state::{AppState, Script, SharedState};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use walkdir::WalkDir;
 
 const DEFAULT_PORT: u16 = 58421;
 
 #[derive(Parser)]
 #[command(name = "bgm-controller")]
-#[command(about = "BGM God-Mode Brain and CLI", long_about = None)]
+#[command(about = "BGM God-Mode Brain and Script Orchestrator", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -33,62 +36,35 @@ enum Commands {
         #[arg(short, long, default_value_t = DEFAULT_PORT)]
         port: u16,
     },
-    /// Navigate to a URL (tabId 'active' is default)
-    Navigate {
-        url: String,
-        #[arg(short, long, default_value = "active")]
-        tab: String,
+    /// Watch a file or directory for script changes and sync in real-time
+    Watch {
+        path: String,
+        #[arg(short, long, default_value_t = DEFAULT_PORT)]
+        port: u16,
     },
-    /// Open a new tab
-    OpenTab { url: Option<String> },
     /// List all active tabs
     Tabs,
-    /// Get the results history
-    Results,
-    /// Capture screenshot of a tab
-    Capture {
-        #[arg(short, long, default_value = "active")]
-        tab: String,
-    },
-    /// Click a selector
-    Click {
-        selector: String,
-        #[arg(short, long, default_value = "active")]
-        tab: String,
-    },
 }
 
-async fn inject_handler(
+async fn sync_handler(
     State(state): State<SharedState>,
-    Json(payload): Json<InjectRequest>,
+    Json(script): Json<Script>,
 ) -> Json<serde_json::Value> {
-    let msg =
-        serde_json::json!({ "type": "inject", "tabId": payload.tab_id, "script": payload.script });
-    let _ = state.tx.send(msg);
-    Json(serde_json::json!({ "status": "sent" }))
+    let mut scripts = state.scripts.lock().unwrap();
+    scripts.insert(script.id.clone(), script.clone());
+
+    // Broadcast to extension
+    let _ = state.tx.send(serde_json::json!({
+        "type": "sync_script",
+        "script": script
+    }));
+
+    Json(serde_json::json!({ "status": "synced", "id": script.id }))
 }
 
 async fn get_tabs_handler(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let tabs = state.tabs.lock().unwrap();
     Json(serde_json::json!({ "tabs": *tabs }))
-}
-
-async fn navigate_handler(
-    State(state): State<SharedState>,
-    Json(payload): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
-    let msg = serde_json::json!({
-        "type": "navigate",
-        "tabId": payload.get("tab_id").unwrap_or(&serde_json::json!("active")),
-        "url": payload.get("url").unwrap_or(&serde_json::json!("https://google.com"))
-    });
-    let _ = state.tx.send(msg);
-    Json(serde_json::json!({ "status": "navigation_sent" }))
-}
-
-async fn results_handler(State(state): State<SharedState>) -> Json<serde_json::Value> {
-    let results = state.results.lock().unwrap();
-    Json(serde_json::json!({ "results": *results }))
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<SharedState>) -> impl IntoResponse {
@@ -99,6 +75,24 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = state.tx.subscribe();
     let state_inner = Arc::clone(&state);
+
+    // Send existing scripts on connect
+    let initial_scripts = {
+        let scripts = state_inner.scripts.lock().unwrap();
+        scripts.values().cloned().collect::<Vec<Script>>()
+    };
+
+    for script in initial_scripts {
+        let _ = sender
+            .send(Message::Text(
+                serde_json::to_string(&serde_json::json!({
+                    "type": "sync_script",
+                    "script": script
+                }))
+                .unwrap(),
+            ))
+            .await;
+    }
 
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
@@ -122,17 +116,8 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
                                 {
                                     let mut tabs = state_inner.tabs.lock().unwrap();
                                     *tabs = new_tabs;
-                                    eprintln!("[BGM] Updated Tab List");
                                 }
                             }
-                        }
-                        "injection_result" | "html_result" | "capture_result" => {
-                            let mut results = state_inner.results.lock().unwrap();
-                            results.push(msg.clone());
-                            if results.len() > 100 {
-                                results.remove(0);
-                            }
-                            eprintln!("[BGM] Captured result: {}", msg_type);
                         }
                         _ => {}
                     }
@@ -145,7 +130,6 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
         _ = (&mut send_task) => recv_task.abort(),
         _ = (&mut recv_task) => send_task.abort(),
     };
-    eprintln!("[BGM] Extension Disconnected");
 }
 
 #[tokio::main]
@@ -155,13 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::Start { port } => {
             let addr_str = format!("127.0.0.1:{}", port);
-
-            // Check if port is already in use
             if std::net::TcpListener::bind(&addr_str).is_err() {
-                eprintln!("\n❌ ERROR: Port {} is already in use.", port);
-                eprintln!("A BGM Brain instance is likely already running.");
                 eprintln!(
-                    "Use `fuser -k {}/tcp` to kill it or use a different port.\n",
+                    "\n❌ ERROR: Port {} in use. Brain is already running.\n",
                     port
                 );
                 std::process::exit(1);
@@ -171,55 +151,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let state = Arc::new(AppState {
                 tx,
                 tabs: Mutex::new(Vec::new()),
-                results: Mutex::new(Vec::new()),
+                scripts: Mutex::new(std::collections::HashMap::new()),
             });
 
             let app = Router::new()
-                .route("/inject", post(inject_handler))
+                .route("/sync", post(sync_handler))
                 .route("/tabs", get(get_tabs_handler))
-                .route("/navigate", post(navigate_handler))
-                .route("/results", get(results_handler))
                 .route("/ws", get(ws_handler))
                 .layer(CorsLayer::permissive())
                 .with_state(Arc::clone(&state));
 
-            let listener = tokio::net::TcpListener::bind(&addr_str).await?;
-            eprintln!("[BGM BRAIN] Operating on http://{}", addr_str);
-            axum::serve(listener, app).await?;
+            eprintln!("[BGM BRAIN] Live on http://{}", addr_str);
+            axum::serve(tokio::net::TcpListener::bind(&addr_str).await?, app).await?;
         }
-        _ => {
+        Commands::Watch { path, port } => {
+            let path_buf = PathBuf::from(&path);
             let client = reqwest::Client::new();
-            let base_url = format!("http://127.0.0.1:{}", DEFAULT_PORT);
+            let url = format!("http://127.0.0.1:{}/sync", port);
 
-            let result = match cli.command {
-                Commands::Navigate { url, tab } => {
-                    client.post(format!("{}/navigate", base_url))
-                        .json(&serde_json::json!({ "url": url, "tab_id": tab }))
-                        .send().await?.json::<serde_json::Value>().await?
+            println!("[WATCHER] Monitoring: {}", path);
+
+            let sync_file = |p: PathBuf, c: &reqwest::Client, u: &String| {
+                if p.extension().map_or(false, |ext| ext == "js") {
+                    let content = std::fs::read_to_string(&p).unwrap_or_default();
+                    let id = p.file_name().unwrap().to_str().unwrap().to_string();
+                    let script = Script {
+                        id,
+                        content,
+                        path: p.to_str().unwrap().to_string(),
+                    };
+                    let client_inner = c.clone();
+                    let url_inner = u.clone();
+                    tokio::spawn(async move {
+                        let _ = client_inner.post(url_inner).json(&script).send().await;
+                        println!("[SYNC] Uploaded: {}", script.id);
+                    });
                 }
-                Commands::OpenTab { url } => {
-                    client.post(format!("{}/navigate", base_url))
-                        .json(&serde_json::json!({ "url": url.unwrap_or("about:blank".to_string()), "tab_id": "new" }))
-                        .send().await?.json::<serde_json::Value>().await?
-                }
-                Commands::Tabs => {
-                    client.get(format!("{}/tabs", base_url)).send().await?
-                        .json::<serde_json::Value>().await?
-                }
-                Commands::Results => {
-                    client.get(format!("{}/results", base_url)).send().await?
-                        .json::<serde_json::Value>().await?
-                }
-                Commands::Click { selector, tab } => {
-                    // Reuse navigate handler structure since common bridge handles many types
-                    client.post(format!("{}/navigate", base_url)) // Note: In a real system you'd have more specific endpoints
-                        .json(&serde_json::json!({ "type": "click", "selector": selector, "tab_id": tab }))
-                        .send().await?.json::<serde_json::Value>().await?
-                }
-                _ => serde_json::json!({ "error": "Command dispatcher not fully implemented" })
             };
 
-            println!("{}", serde_json::to_string_pretty(&result)?);
+            // Initial sync
+            for entry in WalkDir::new(&path_buf).into_iter().filter_map(|e| e.ok()) {
+                if entry.path().is_file() {
+                    sync_file(entry.path().to_path_buf(), &client, &url);
+                }
+            }
+
+            // Watch for changes
+            let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+            let mut watcher = notify::RecommendedWatcher::new(
+                move |res| {
+                    if let Ok(event) = res {
+                        let _ = tx.blocking_send(event);
+                    }
+                },
+                Config::default(),
+            )?;
+
+            watcher.watch(&path_buf, RecursiveMode::Recursive)?;
+
+            while let Some(event) = rx.recv().await {
+                for p in event.paths {
+                    if p.is_file() {
+                        sync_file(p, &client, &url);
+                    }
+                }
+            }
+        }
+        Commands::Tabs => {
+            let res = reqwest::get(format!("http://127.0.0.1:{}/tabs", DEFAULT_PORT)).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&res.json::<serde_json::Value>().await?)?
+            );
         }
     }
     Ok(())

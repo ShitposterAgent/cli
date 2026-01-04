@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct InjectRequest {
-    #[serde(rename = "tabId")]
-    pub tab_id: serde_json::Value, // Can be i32 or String "all"
-    pub script: String,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Script {
+    pub id: String,
+    pub content: String,
+    pub path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -15,18 +16,10 @@ pub struct TabInfo {
     pub title: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Rule {
-    pub id: String,
-    pub pattern: String,
-    pub script: String,
-    pub enabled: bool,
-}
-
 pub struct AppState {
     pub tx: tokio::sync::broadcast::Sender<serde_json::Value>,
     pub tabs: Mutex<Vec<TabInfo>>,
-    pub results: Mutex<Vec<serde_json::Value>>,
+    pub scripts: Mutex<HashMap<String, Script>>,
 }
 
 pub type SharedState = Arc<AppState>;

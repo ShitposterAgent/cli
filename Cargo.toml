@@ -13,3 +13,5 @@ byteorder = "1.5"
 futures-util = "0.3"
 clap = { version = "4.5", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json"] }
+notify = "6.1"
+walkdir = "2.5"
