@@ -1,3 +1,4 @@
+mod config;
 mod state;
 
 use axum::{
@@ -11,15 +12,13 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use futures_util::{sink::SinkExt, stream::StreamExt};
-use notify::{Config, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use state::{AppState, Script, SharedState};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use walkdir::WalkDir;
-
-const DEFAULT_PORT: u16 = 58421;
 
 #[derive(Parser)]
 #[command(name = "bgm-controller")]
@@ -33,17 +32,21 @@ struct Cli {
 enum Commands {
     /// Start the persistent Brain server
     Start {
-        #[arg(short, long, default_value_t = DEFAULT_PORT)]
-        port: u16,
+        #[arg(short, long)]
+        port: Option<u16>,
     },
     /// Watch a file or directory for script changes and sync in real-time
     Watch {
-        path: String,
-        #[arg(short, long, default_value_t = DEFAULT_PORT)]
-        port: u16,
+        #[arg(short, long)]
+        path: Option<String>,
+        #[arg(short, long)]
+        port: Option<u16>,
     },
     /// List all active tabs
-    Tabs,
+    Tabs {
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
 }
 
 async fn sync_handler(
@@ -135,9 +138,11 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let config = config::load_config();
 
     match cli.command {
         Commands::Start { port } => {
+            let port = port.unwrap_or(config.port);
             let addr_str = format!("127.0.0.1:{}", port);
             if std::net::TcpListener::bind(&addr_str).is_err() {
                 eprintln!(
@@ -165,6 +170,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             axum::serve(tokio::net::TcpListener::bind(&addr_str).await?, app).await?;
         }
         Commands::Watch { path, port } => {
+            let port = port.unwrap_or(config.port);
+            let path = path.unwrap_or(config.agents_dir);
             let path_buf = PathBuf::from(&path);
             let client = reqwest::Client::new();
             let url = format!("http://127.0.0.1:{}/sync", port);
@@ -204,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = tx.blocking_send(event);
                     }
                 },
-                Config::default(),
+                notify::Config::default(),
             )?;
 
             watcher.watch(&path_buf, RecursiveMode::Recursive)?;
@@ -217,8 +224,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Commands::Tabs => {
-            let res = reqwest::get(format!("http://127.0.0.1:{}/tabs", DEFAULT_PORT)).await?;
+        Commands::Tabs { port } => {
+            let port = port.unwrap_or(config.port);
+            let res = reqwest::get(format!("http://127.0.0.1:{}/tabs", port)).await?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&res.json::<serde_json::Value>().await?)?
