@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BGM | Command Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@300;500;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0c;
+            --surface: #121217;
+            --surface-accent: #1c1c24;
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.3);
+            --text: #f4f4f5;
+            --text-muted: #a1a1aa;
+            --accent: #f43f5e;
+            --success: #10b981;
+            --border: rgba(255, 255, 255, 0.08);
+            --radius: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        aside {
+            width: 280px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            background: var(--surface);
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 40px;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        .nav-group {
+            margin-bottom: 30px;
+        }
+
+        .nav-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            font-weight: 700;
+        }
+
+        .nav-item {
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            margin-bottom: 4px;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            background: var(--surface-accent);
+            color: var(--text);
+        }
+
+        .nav-item.active {
+            border: 1px solid var(--border);
+        }
+
+        /* Main Area */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: radial-gradient(circle at top right, #1a1a2e, var(--bg));
+        }
+
+        header {
+            height: 70px;
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            backdrop-filter: blur(10px);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-pill {
+            padding: 4px 12px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background: currentColor;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.5;
+                transform: scale(1.1);
+            }
+
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* Dashboard Content */
+        .content-area {
+            flex: 1;
+            padding: 32px;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            overflow-y: auto;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        /* Tab List */
+        .tab-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .tab-item {
+            background: var(--surface-accent);
+            padding: 16px;
+            border-radius: calc(var(--radius) - 4px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid transparent;
+            transition: 0.2s;
+        }
+
+        .tab-item:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .tab-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .tab-name {
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .tab-url {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 400px;
+        }
+
+        /* Console */
+        .console {
+            background: #000;
+            border-radius: calc(var(--radius) - 4px);
+            padding: 16px;
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #d1d1d1;
+            overflow-y: auto;
+            max-height: 400px;
+            border: 1px solid var(--border);
+        }
+
+        .console-line {
+            margin-bottom: 4px;
+            line-height: 1.5;
+        }
+
+        .line-time {
+            color: var(--text-muted);
+        }
+
+        .line-tag {
+            background: var(--surface-accent);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin: 0 8px;
+            text-transform: uppercase;
+        }
+
+        .tag-sdk {
+            color: var(--primary);
+        }
+
+        .tag-log {
+            color: var(--success);
+        }
+
+        /* Actions */
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.1);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <aside>
+        <div class="logo">
+            <div class="logo-icon">🚀</div>
+            <span>BGM BRAIN</span>
+        </div>
+
+        <div class="nav-group">
+            <div class="nav-label">Main Orchestrator</div>
+            <div class="nav-item active">
+                <span>🏠</span> Dashboard
+            </div>
+            <div class="nav-item">
+                <span>📜</span> Script Vault
+            </div>
+            <div class="nav-item">
+                <span>⚡</span> Live Runner
+            </div>
+        </div>
+
+        <div class="nav-group">
+            <div class="nav-label">Analytics</div>
+            <div class="nav-item">
+                <span>📊</span> Traffic Logs
+            </div>
+            <div class="nav-item">
+                <span>🛠️</span> Settings
+            </div>
+        </div>
+
+        <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
+            <div class="nav-item" style="color: #6366f1;">
+                <span>🔋</span> System: v0.1.0-alpha
+            </div>
+        </div>
+    </aside>
+
+    <main>
+        <header>
+            <div class="search-bar" style="color: var(--text-muted); font-size: 14px;">
+                Searching across all active browser contexts...
+            </div>
+            <div class="status">
+                <div class="status-pill">
+                    <div class="status-dot"></div>
+                    CONNECTED
+                </div>
+            </div>
+        </header>
+
+        <div class="content-area">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Active Browser Tabs</h2>
+                    <button class="btn btn-outline" onclick="refreshTabs()">Refresh</button>
+                </div>
+                <div id="tabs-list" class="tab-list">
+                    <div class="empty-state">Initializing neural link to browser...</div>
+                </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 24px;">
+                <div class="card" style="flex: 1;">
+                    <div class="card-header">
+                        <h2 class="card-title">Live SDK Stream</h2>
+                        <button class="btn btn-outline" style="padding: 4px 8px;" onclick="clearLog()">Clear</button>
+                    </div>
+                    <div id="console-output" class="console">
+                        <div class="console-line">
+                            <span class="line-time">[12:00:00]</span>
+                            <span class="line-tag tag-sdk">SYSTEM</span>
+                            <span>Awaiting SDK events from tabs...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="card-title" style="margin-bottom: 12px;">Memory Usage</h2>
+                    <div
+                        style="height: 4px; background: var(--surface-accent); border-radius: 2px; position: relative;">
+                        <div
+                            style="position: absolute; left: 0; top: 0; bottom: 0; width: 42%; background: var(--primary); border-radius: 2px;">
+                        </div>
+                    </div>
+                    <div
+                        style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; color: var(--text-muted);">
+                        <span>42MB Neural Load</span>
+                        <span>128MB Cap</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const tabsList = document.getElementById('tabs-list');
+        const consoleOutput = document.getElementById('console-output');
+
+        function updateTabs(tabs) {
+            if (!tabs || tabs.length === 0) {
+                tabsList.innerHTML = '<div class="empty-state">No open tabs found. BGM is watching.</div>';
+                return;
+            }
+
+            tabsList.innerHTML = tabs.map(tab => `
+                <div class="tab-item">
+                    <div class="tab-info">
+                        <span class="tab-name">${tab.title || 'Untitled Tab'}</span>
+                        <span class="tab-url">${tab.url}</span>
+                    </div>
+                    <button class="btn" onclick="targetTab(${tab.id})">TARGET</button>
+                </div>
+            `).join('');
+        }
+
+        function appendLog(type, msg, scriptId = 'SYSTEM') {
+            const line = document.createElement('div');
+            line.className = 'console-line';
+            const timeStr = new Date().toLocaleTimeString();
+            line.innerHTML = `
+                <span class="line-time">[${timeStr}]</span>
+                <span class="line-tag tag-${type}">${type}</span>
+                <span style="color: var(--text-muted)">(${scriptId})</span>
+                <span>${msg}</span>
+            `;
+            consoleOutput.appendChild(line);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+
+        async function refreshTabs() {
+            try {
+                const res = await fetch('/tabs');
+                const data = await res.json();
+                updateTabs(data.tabs);
+            } catch (e) {
+                appendLog('sdk', 'Failed to fetch tabs: ' + e.message, 'CORE');
+            }
+        }
+
+        function targetTab(id) {
+            appendLog('sdk', `Targeting Tab ID: ${id}`, 'CORE');
+        }
+
+        function clearLog() {
+            consoleOutput.innerHTML = '';
+        }
+
+        // Connect to WebSocket for real-time updates
+        function connect() {
+            const ws = new WebSocket(`ws://${location.host}/ws`);
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'tabs') {
+                    updateTabs(msg.tabs);
+                } else if (msg.type === 'sdk_event') {
+                    const evType = msg.type === 'log' ? 'log' : 'sdk';
+                    appendLog(evType, JSON.stringify(msg.payload), msg.scriptId);
+                }
+            };
+
+            ws.onclose = () => setTimeout(connect, 3000);
+        }
+
+        connect();
+        setInterval(refreshTabs, 5000);
+        refreshTabs();
+    </script>
+</body>
+
+</html>

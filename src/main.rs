@@ -122,6 +122,28 @@ async fn handle_socket(socket: WebSocket, state: SharedState) {
                                 }
                             }
                         }
+                        "sdk_event" => {
+                            let tab_id = msg.get("tabId").and_then(|v| v.as_i64()).unwrap_or(-1);
+                            let script_id = msg
+                                .get("scriptId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            let ev_type =
+                                msg.get("type").and_then(|v| v.as_str()).unwrap_or("event");
+                            let payload = msg.get("payload").unwrap_or(&serde_json::Value::Null);
+
+                            if ev_type == "log" {
+                                println!(
+                                    "\x1b[34m[LOG][Tab {}][{}]\x1b[0m {}",
+                                    tab_id, script_id, payload
+                                );
+                            } else {
+                                println!(
+                                    "\x1b[35m[SDK][Tab {}][{}]\x1b[0m {}: {}",
+                                    tab_id, script_id, ev_type, payload
+                                );
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -160,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             let app = Router::new()
+                .fallback_service(tower_http::services::ServeDir::new("bgm-controller/dashboard"))
                 .route("/sync", post(sync_handler))
                 .route("/tabs", get(get_tabs_handler))
                 .route("/ws", get(ws_handler))
@@ -167,6 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_state(Arc::clone(&state));
 
             eprintln!("[BGM BRAIN] Live on http://{}", addr_str);
+            eprintln!("[BGM BRAIN] Dashboard available at http://{}/", addr_str);
             axum::serve(tokio::net::TcpListener::bind(&addr_str).await?, app).await?;
         }
         Commands::Watch { path, port } => {
